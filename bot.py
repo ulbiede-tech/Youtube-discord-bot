@@ -28,7 +28,7 @@ YOUTUBE_HANDLES = {
 
 # Angezeigte Namen in Discord
 DISPLAY_NAMES = {
-    "ULBIDE": "ULBIEDE",
+    "ULBIEDE": "ULBIEDE",
     "MYKA_JO": "MYKA_JO",
 }
 
