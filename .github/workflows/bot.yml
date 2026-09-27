@@ -5,6 +5,13 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: youtube-discord-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -26,3 +33,15 @@ jobs:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
         run: python bot.py
+
+      - name: Zustandsdatei speichern
+        run: |
+          if [ -n "$(git status --porcelain -- posted_videos.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add posted_videos.json
+            git commit -m "Update YouTube bot state"
+            git push
+          else
+            echo "Keine Änderung an der Zustandsdatei."
+          fi
