@@ -21,7 +21,7 @@ DISCORD_CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 # =========================
 
 YOUTUBE_HANDLES = {
-    "ULBIDE": "https://www.youtube.com/@ulbiede",
+    "ULBIEDE": "https://www.youtube.com/@ulbiede",
     "MYKA_JO": "https://www.youtube.com/@Myka_jo",
 }
 
