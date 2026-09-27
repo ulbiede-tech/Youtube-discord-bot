@@ -39,7 +39,6 @@ DISPLAY_NAMES = {
 
 STATE_FILE = "posted_videos.json"
 
-# Beim allerersten Start jeweils das aktuellste Video senden
 SEND_LATEST_ON_FIRST_RUN = True
 
 
@@ -56,12 +55,21 @@ def get_channel_id(handle_url):
     )
 
     with urllib.request.urlopen(request, timeout=15) as response:
-        html = response.read().decode("utf-8", errors="ignore")
+        html = response.read().decode(
+            "utf-8",
+            errors="ignore"
+        )
 
-    match = re.search(r'"channelId":"(UC[^"]+)"', html)
+    match = re.search(
+        r'"channelId":"(UC[^"]+)"',
+        html
+    )
 
     if not match:
-        match = re.search(r'"externalId":"(UC[^"]+)"', html)
+        match = re.search(
+            r'"externalId":"(UC[^"]+)"',
+            html
+        )
 
     if not match:
         raise RuntimeError(
@@ -100,9 +108,21 @@ def get_videos(channel_id):
 
     videos = []
 
-    for entry in root.findall("atom:entry", namespace):
-        video_id = entry.findtext("yt:videoId", default="", namespaces=namespace)
-        title = entry.findtext("atom:title", default="", namespaces=namespace)
+    for entry in root.findall(
+        "atom:entry",
+        namespace
+    ):
+        video_id = entry.findtext(
+            "yt:videoId",
+            default="",
+            namespaces=namespace
+        )
+
+        title = entry.findtext(
+            "atom:title",
+            default="",
+            namespaces=namespace
+        )
 
         if not video_id:
             continue
@@ -110,7 +130,9 @@ def get_videos(channel_id):
         videos.append({
             "id": video_id,
             "title": title,
-            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "url": (
+                f"https://www.youtube.com/watch?v={video_id}"
+            ),
         })
 
     return videos
@@ -125,8 +147,20 @@ def load_state():
         return {}
 
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+            data = json.load(file)
+
+        # Falls die Datei aus irgendeinem Grund
+        # kein Dictionary ist, starten wir sauber neu.
+        if not isinstance(data, dict):
+            return {}
+
+        return data
+
     except Exception:
         return {}
 
@@ -136,7 +170,11 @@ def load_state():
 # =========================
 
 def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as file:
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8"
+    ) as file:
         json.dump(
             state,
             file,
@@ -146,10 +184,14 @@ def save_state(state):
 
 
 # =========================
-# Neue Videos an Discord senden
+# Video an Discord senden
 # =========================
 
-async def send_new_videos(channel, channel_name, videos):
+async def send_new_videos(
+    channel,
+    channel_name,
+    videos
+):
     display_name = DISPLAY_NAMES.get(
         channel_name,
         channel_name
@@ -157,12 +199,26 @@ async def send_new_videos(channel, channel_name, videos):
 
     for video in reversed(videos):
 
-        # Grüner Embed-Balken
+        # YouTube-Vorschaubild
+        thumbnail_url = (
+            f"https://img.youtube.com/vi/"
+            f"{video['id']}/hqdefault.jpg"
+        )
+
+        # Grüner Discord-Embed
         embed = discord.Embed(
-            title=f"{display_name} published a new video!",
+            title=(
+                f"{display_name} "
+                f"published a new video!"
+            ),
             description=video["title"],
             url=video["url"],
             color=0x33FF00
+        )
+
+        # YouTube-Thumbnail als Vorschau
+        embed.set_image(
+            url=thumbnail_url
         )
 
         # @everyone erlauben
@@ -170,16 +226,13 @@ async def send_new_videos(channel, channel_name, videos):
             everyone=True
         )
 
-        # Der echte YouTube-Link steht in der Nachricht.
-        # Dadurch kann Discord automatisch die normale
-        # YouTube-Vorschau erzeugen.
+        # KEIN YouTube-Link als extra Text!
         await channel.send(
-            content=f"@everyone\n{video['url']}",
+            content="@everyone",
             embed=embed,
             allowed_mentions=allowed_mentions
         )
 
-        # Kleine Pause zwischen mehreren Videos
         await asyncio.sleep(2)
 
 
@@ -188,6 +241,7 @@ async def send_new_videos(channel, channel_name, videos):
 # =========================
 
 async def main():
+
     intents = discord.Intents.default()
 
     client = discord.Client(
@@ -200,7 +254,9 @@ async def main():
 
         await client.login(DISCORD_TOKEN)
 
-        channel = client.get_channel(DISCORD_CHANNEL_ID)
+        channel = client.get_channel(
+            DISCORD_CHANNEL_ID
+        )
 
         if channel is None:
             channel = await client.fetch_channel(
@@ -211,16 +267,22 @@ async def main():
 
             try:
                 print(
-                    f"Prüfe YouTube-Kanal: {channel_name}"
+                    f"Prüfe YouTube-Kanal "
+                    f"{channel_name}"
                 )
 
-                channel_id = get_channel_id(handle_url)
+                channel_id = get_channel_id(
+                    handle_url
+                )
 
-                videos = get_videos(channel_id)
+                videos = get_videos(
+                    channel_id
+                )
 
                 if not videos:
                     print(
-                        f"Keine Videos gefunden: {channel_name}"
+                        f"Keine Videos gefunden: "
+                        f"{channel_name}"
                     )
                     continue
 
@@ -239,7 +301,6 @@ async def main():
                             videos[:1]
                         )
 
-                    # Alle vorhandenen Videos als gesehen markieren
                     state[channel_name] = [
                         video["id"]
                         for video in videos
@@ -250,12 +311,15 @@ async def main():
                     new_videos = [
                         video
                         for video in videos
-                        if video["id"] not in seen_videos
+                        if video["id"]
+                        not in seen_videos
                     ]
 
                     if new_videos:
+
                         print(
-                            f"{len(new_videos)} neue(s) Video(s) "
+                            f"{len(new_videos)} "
+                            f"neue(s) Video(s) "
                             f"von {channel_name}"
                         )
 
@@ -274,8 +338,11 @@ async def main():
                         )
 
             except Exception as error:
+
                 print(
-                    f"Fehler bei {channel_name}: {error}"
+                    f"Fehler bei "
+                    f"{channel_name}: "
+                    f"{error}"
                 )
 
         save_state(state)
