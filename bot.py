@@ -22,6 +22,10 @@ YOUTUBE_HANDLES = {
 
 STATE_FILE = "posted_videos.json"
 
+# Beim ersten Start wird das jeweils aktuellste Video
+# pro Kanal einmal gepostet. Danach werden nur neue Videos gepostet.
+SEND_LATEST_ON_FIRST_RUN = True
+
 ATOM = "{http://www.w3.org/2005/Atom}"
 YOUTUBE = "{http://www.youtube.com/xml/schemas/2015}"
 
@@ -41,9 +45,10 @@ def get_channel_id(handle_url):
     with urllib.request.urlopen(request, timeout=20) as response:
         html = response.read().decode("utf-8", errors="ignore")
 
-    # Sucht nach einer normalen YouTube-Kanal-ID, z. B.
-    # UCxxxxxxxxxxxxxxxxxxxxxx
-    match = re.search(r'"channelId":"(UC[a-zA-Z0-9_-]+)"', html)
+    match = re.search(
+        r'"channelId":"(UC[a-zA-Z0-9_-]+)"',
+        html
+    )
 
     if not match:
         match = re.search(
@@ -105,7 +110,6 @@ def get_videos(channel_id):
                 }
             )
 
-    # Ältestes neues Video zuerst
     videos.sort(key=lambda video: video["published"])
 
     return videos
@@ -151,10 +155,7 @@ async def send_new_videos(new_videos):
     try:
         await client.login(DISCORD_TOKEN)
 
-        channel = client.get_channel(DISCORD_CHANNEL_ID)
-
-        if channel is None:
-            channel = await client.fetch_channel(DISCORD_CHANNEL_ID)
+        channel = await client.fetch_channel(DISCORD_CHANNEL_ID)
 
         for channel_name, video in new_videos:
             message = (
@@ -180,10 +181,7 @@ async def send_new_videos(new_videos):
 async def main():
     state = load_state()
 
-    # Beim allerersten Start werden vorhandene Videos nur
-    # als "bereits gesehen" gespeichert.
-    # Dadurch spammt der Bot nicht direkt alle alten Videos
-    # in euren Discord-Kanal.
+    # True, wenn die Datei noch nicht im Repository existiert.
     first_run = state is None
 
     if first_run:
@@ -200,7 +198,25 @@ async def main():
 
         videos = get_videos(channel_id)
 
-        if first_run:
+        if not videos:
+            print(f"Keine Videos gefunden: {channel_name}")
+            continue
+
+        if first_run and SEND_LATEST_ON_FIRST_RUN:
+            # Nur das aktuellste Video dieses Kanals wird
+            # beim ersten Start als Test gesendet.
+            latest_video = videos[-1]
+
+            new_videos.append(
+                (channel_name, latest_video)
+            )
+
+            for video in videos:
+                state.add(video["id"])
+
+        elif first_run:
+            # Falls der erste Start ohne Test-Nachricht erfolgen soll,
+            # werden alle bisherigen Videos nur als gesehen gespeichert.
             for video in videos:
                 state.add(video["id"])
 
@@ -211,22 +227,15 @@ async def main():
                         (channel_name, video)
                     )
 
-    if first_run:
-        save_state(state)
-        print(
-            "Erster Start abgeschlossen. "
-            "Vorhandene Videos wurden als gesehen gespeichert."
-        )
-        return
-
     if not new_videos:
+        save_state(state)
         print("Keine neuen Videos gefunden.")
         return
 
-    # Neue Videos an Discord senden
+    # Neue Videos an Discord senden.
     await send_new_videos(new_videos)
 
-    # Erst nach erfolgreichem Senden speichern
+    # Erst nach erfolgreichem Senden als verarbeitet markieren.
     for channel_name, video in new_videos:
         state.add(video["id"])
 
