@@ -8,31 +8,44 @@ import xml.etree.ElementTree as ET
 import discord
 
 
-# ============================================================
-# EINSTELLUNGEN
-# ============================================================
+# =========================
+# Discord Einstellungen
+# =========================
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 DISCORD_CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
+
+
+# =========================
+# YouTube Kanäle
+# =========================
 
 YOUTUBE_HANDLES = {
     "ULBIDE": "https://www.youtube.com/@ulbiede",
     "MYKA_JO": "https://www.youtube.com/@Myka_jo",
 }
 
+
+# Angezeigte Namen in Discord
+DISPLAY_NAMES = {
+    "ULBIDE": "ULBIEDE",
+    "MYKA_JO": "MYKA_JO",
+}
+
+
+# =========================
+# Einstellungen
+# =========================
+
 STATE_FILE = "posted_videos.json"
 
-# Beim ersten Start wird das jeweils aktuellste Video
-# pro Kanal einmal gepostet. Danach werden nur neue Videos gepostet.
+# Beim allerersten Start jeweils das aktuellste Video senden
 SEND_LATEST_ON_FIRST_RUN = True
 
-ATOM = "{http://www.w3.org/2005/Atom}"
-YOUTUBE = "{http://www.youtube.com/xml/schemas/2015}"
 
-
-# ============================================================
-# YOUTUBE-KANAL-ID AUS DEM @HANDLE ERMITTELN
-# ============================================================
+# =========================
+# YouTube Channel-ID finden
+# =========================
 
 def get_channel_id(handle_url):
     request = urllib.request.Request(
@@ -42,213 +55,237 @@ def get_channel_id(handle_url):
         }
     )
 
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=15) as response:
         html = response.read().decode("utf-8", errors="ignore")
 
-    match = re.search(
-        r'"channelId":"(UC[a-zA-Z0-9_-]+)"',
-        html
-    )
+    match = re.search(r'"channelId":"(UC[^"]+)"', html)
 
     if not match:
-        match = re.search(
-            r'"externalId":"(UC[a-zA-Z0-9_-]+)"',
-            html
-        )
+        match = re.search(r'"externalId":"(UC[^"]+)"', html)
 
     if not match:
         raise RuntimeError(
-            f"Kanal-ID konnte nicht gefunden werden: {handle_url}"
+            f"Keine YouTube Channel-ID gefunden: {handle_url}"
         )
 
     return match.group(1)
 
 
-# ============================================================
-# NEUE VIDEOS AUS DEM YOUTUBE-RSS-FEED HOLEN
-# ============================================================
+# =========================
+# Videos eines Kanals holen
+# =========================
 
 def get_videos(channel_id):
-    feed_url = (
+    url = (
         "https://www.youtube.com/feeds/videos.xml"
         f"?channel_id={channel_id}"
     )
 
     request = urllib.request.Request(
-        feed_url,
+        url,
         headers={
             "User-Agent": "Mozilla/5.0"
         }
     )
 
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=15) as response:
         xml_data = response.read()
 
     root = ET.fromstring(xml_data)
 
+    namespace = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "yt": "http://www.youtube.com/xml/schemas/2015",
+    }
+
     videos = []
 
-    for entry in root.findall(f"{ATOM}entry"):
-        video_id = entry.findtext(f"{YOUTUBE}videoId")
-        title = entry.findtext(f"{ATOM}title")
-        published = entry.findtext(f"{ATOM}published")
+    for entry in root.findall("atom:entry", namespace):
+        video_id = entry.findtext("yt:videoId", default="", namespaces=namespace)
+        title = entry.findtext("atom:title", default="", namespaces=namespace)
 
-        video_url = None
+        if not video_id:
+            continue
 
-        for link in entry.findall(f"{ATOM}link"):
-            if link.get("rel") == "alternate":
-                video_url = link.get("href")
-                break
-
-        if video_id and video_url:
-            videos.append(
-                {
-                    "id": video_id,
-                    "title": title or "Neues Video",
-                    "url": video_url,
-                    "published": published or "",
-                }
-            )
-
-    videos.sort(key=lambda video: video["published"])
+        videos.append({
+            "id": video_id,
+            "title": title,
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+        })
 
     return videos
 
 
-# ============================================================
-# BEREITS GEPOSTETE VIDEOS LADEN
-# ============================================================
+# =========================
+# Gespeicherte Videos laden
+# =========================
 
 def load_state():
     if not os.path.exists(STATE_FILE):
-        return None
+        return {}
 
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as file:
-            return set(json.load(file))
-    except (json.JSONDecodeError, OSError):
-        return set()
+            return json.load(file)
+    except Exception:
+        return {}
 
 
-# ============================================================
-# BEREITS GEPOSTETE VIDEOS SPEICHERN
-# ============================================================
+# =========================
+# Gespeicherte Videos speichern
+# =========================
 
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as file:
         json.dump(
-            sorted(state),
+            state,
             file,
             indent=2,
             ensure_ascii=False
         )
 
 
-# ============================================================
-# DISCORD
-# ============================================================
+# =========================
+# Neue Videos an Discord senden
+# =========================
 
-async def send_new_videos(new_videos):
-    intents = discord.Intents.none()
-    client = discord.Client(intents=intents)
+async def send_new_videos(channel, channel_name, videos):
+    display_name = DISPLAY_NAMES.get(
+        channel_name,
+        channel_name
+    )
 
-    try:
+    for video in reversed(videos):
+
+        # Grüner Embed-Balken
+        embed = discord.Embed(
+            title=f"{display_name} published a new video!",
+            description=video["title"],
+            url=video["url"],
+            color=0x33FF00
+        )
+
+        # @everyone erlauben
+        allowed_mentions = discord.AllowedMentions(
+            everyone=True
+        )
+
+        # Der echte YouTube-Link steht in der Nachricht.
+        # Dadurch kann Discord automatisch die normale
+        # YouTube-Vorschau erzeugen.
+        await channel.send(
+            content=f"@everyone\n{video['url']}",
+            embed=embed,
+            allowed_mentions=allowed_mentions
+        )
+
+        # Kleine Pause zwischen mehreren Videos
+        await asyncio.sleep(2)
+
+
+# =========================
+# Hauptprogramm
+# =========================
+
+async def main():
+    intents = discord.Intents.default()
+
+    client = discord.Client(
+        intents=intents
+    )
+
+    state = load_state()
+
+    async with client:
+
         await client.login(DISCORD_TOKEN)
 
-        channel = await client.fetch_channel(DISCORD_CHANNEL_ID)
+        channel = client.get_channel(DISCORD_CHANNEL_ID)
 
-        for channel_name, video in new_videos:
-            message = (
-                f"**{channel_name} – neues Video!**\n"
-                f"{video['title']}\n"
-                f"{video['url']}"
+        if channel is None:
+            channel = await client.fetch_channel(
+                DISCORD_CHANNEL_ID
             )
 
-            await channel.send(message)
+        for channel_name, handle_url in YOUTUBE_HANDLES.items():
 
-            print(
-                f"Gesendet: {channel_name} - {video['title']}"
-            )
+            try:
+                print(
+                    f"Prüfe YouTube-Kanal: {channel_name}"
+                )
 
-    finally:
+                channel_id = get_channel_id(handle_url)
+
+                videos = get_videos(channel_id)
+
+                if not videos:
+                    print(
+                        f"Keine Videos gefunden: {channel_name}"
+                    )
+                    continue
+
+                seen_videos = state.get(
+                    channel_name,
+                    []
+                )
+
+                # Erster Start
+                if channel_name not in state:
+
+                    if SEND_LATEST_ON_FIRST_RUN:
+                        await send_new_videos(
+                            channel,
+                            channel_name,
+                            videos[:1]
+                        )
+
+                    # Alle vorhandenen Videos als gesehen markieren
+                    state[channel_name] = [
+                        video["id"]
+                        for video in videos
+                    ]
+
+                else:
+
+                    new_videos = [
+                        video
+                        for video in videos
+                        if video["id"] not in seen_videos
+                    ]
+
+                    if new_videos:
+                        print(
+                            f"{len(new_videos)} neue(s) Video(s) "
+                            f"von {channel_name}"
+                        )
+
+                        await send_new_videos(
+                            channel,
+                            channel_name,
+                            new_videos
+                        )
+
+                        state[channel_name] = (
+                            seen_videos
+                            + [
+                                video["id"]
+                                for video in new_videos
+                            ]
+                        )
+
+            except Exception as error:
+                print(
+                    f"Fehler bei {channel_name}: {error}"
+                )
+
+        save_state(state)
+
         await client.close()
 
 
-# ============================================================
-# HAUPTPROGRAMM
-# ============================================================
-
-async def main():
-    state = load_state()
-
-    # True, wenn die Datei noch nicht im Repository existiert.
-    first_run = state is None
-
-    if first_run:
-        state = set()
-
-    new_videos = []
-
-    for channel_name, handle_url in YOUTUBE_HANDLES.items():
-        print(f"Prüfe {channel_name}...")
-
-        channel_id = get_channel_id(handle_url)
-
-        print(f"Kanal-ID gefunden: {channel_id}")
-
-        videos = get_videos(channel_id)
-
-        if not videos:
-            print(f"Keine Videos gefunden: {channel_name}")
-            continue
-
-        if first_run and SEND_LATEST_ON_FIRST_RUN:
-            # Nur das aktuellste Video dieses Kanals wird
-            # beim ersten Start als Test gesendet.
-            latest_video = videos[-1]
-
-            new_videos.append(
-                (channel_name, latest_video)
-            )
-
-            for video in videos:
-                state.add(video["id"])
-
-        elif first_run:
-            # Falls der erste Start ohne Test-Nachricht erfolgen soll,
-            # werden alle bisherigen Videos nur als gesehen gespeichert.
-            for video in videos:
-                state.add(video["id"])
-
-        else:
-            for video in videos:
-                if video["id"] not in state:
-                    new_videos.append(
-                        (channel_name, video)
-                    )
-
-    if not new_videos:
-        save_state(state)
-        print("Keine neuen Videos gefunden.")
-        return
-
-    # Neue Videos an Discord senden.
-    await send_new_videos(new_videos)
-
-    # Erst nach erfolgreichem Senden als verarbeitet markieren.
-    for channel_name, video in new_videos:
-        state.add(video["id"])
-
-    save_state(state)
-
-    print(
-        f"{len(new_videos)} neues/neue Video(s) verarbeitet."
-    )
-
-
-# ============================================================
-# START
-# ============================================================
+# =========================
+# Start
+# =========================
 
 if __name__ == "__main__":
     asyncio.run(main())
