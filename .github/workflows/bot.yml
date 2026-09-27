@@ -1,3 +1,5 @@
+name: YouTube Discord Bot
+
 on:
   schedule:
     - cron: "*/5 * * * *"
