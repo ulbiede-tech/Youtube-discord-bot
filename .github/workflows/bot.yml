@@ -2,7 +2,11 @@ name: YouTube Discord Bot
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Alle 5 Minuten, aber NICHT genau bei Minute 00.
+    # Dadurch vermeiden wir den besonders stark belasteten
+    # Stundenbeginn bei GitHub Actions.
+    - cron: "3-59/5 * * * *"
+
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +19,8 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
+    timeout-minutes: 5
 
     steps:
       - name: Repository herunterladen
