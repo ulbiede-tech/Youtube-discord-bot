@@ -4,6 +4,7 @@ import os
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 
 import discord
 
@@ -21,14 +22,14 @@ DISCORD_CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 # =========================
 
 YOUTUBE_HANDLES = {
-    "ULBIEDE": "https://www.youtube.com/@ulbiede",
+    "ULBIDE": "https://www.youtube.com/@ulbiede",
     "MYKA_JO": "https://www.youtube.com/@Myka_jo",
 }
 
 
 # Angezeigte Namen in Discord
 DISPLAY_NAMES = {
-    "ULBIEDE": "ULBIEDE",
+    "ULBIDE": "ULBIEDE",
     "MYKA_JO": "MYKA_JO",
 }
 
@@ -39,6 +40,7 @@ DISPLAY_NAMES = {
 
 STATE_FILE = "posted_videos.json"
 
+# Beim allerersten Start das aktuellste Video senden
 SEND_LATEST_ON_FIRST_RUN = True
 
 
@@ -154,8 +156,7 @@ def load_state():
         ) as file:
             data = json.load(file)
 
-        # Falls die Datei aus irgendeinem Grund
-        # kein Dictionary ist, starten wir sauber neu.
+        # Schutz gegen falsches Format
         if not isinstance(data, dict):
             return {}
 
@@ -205,18 +206,18 @@ async def send_new_videos(
             f"{video['id']}/hqdefault.jpg"
         )
 
-        # Grüner Discord-Embed
+        # Nur der eigentliche Videotitel ist klickbar.
+        # Der Benachrichtigungstext oben bleibt nicht klickbar.
         embed = discord.Embed(
-            title=(
-                f"{display_name} "
-                f"published a new video!"
+            description=(
+                f"**{display_name} published a new video!**"
+                f"\n\n"
+                f"[{video['title']}]({video['url']})"
             ),
-            description=video["title"],
-            url=video["url"],
             color=0x33FF00
         )
 
-        # YouTube-Thumbnail als Vorschau
+        # YouTube-Vorschaubild
         embed.set_image(
             url=thumbnail_url
         )
@@ -226,7 +227,7 @@ async def send_new_videos(
             everyone=True
         )
 
-        # KEIN YouTube-Link als extra Text!
+        # Kein zusätzlicher YouTube-Link als Text!
         await channel.send(
             content="@everyone",
             embed=embed,
@@ -241,6 +242,11 @@ async def send_new_videos(
 # =========================
 
 async def main():
+
+    print(
+        "Bot-Start:",
+        datetime.now(timezone.utc).isoformat()
+    )
 
     intents = discord.Intents.default()
 
@@ -285,6 +291,15 @@ async def main():
                         f"{channel_name}"
                     )
                     continue
+
+                # Zur Fehlersuche anzeigen,
+                # welches Video der Feed gerade als neuestes liefert.
+                print(
+                    f"Neuestes Feed-Video für "
+                    f"{channel_name}: "
+                    f"{videos[0]['title']} "
+                    f"({videos[0]['id']})"
+                )
 
                 seen_videos = state.get(
                     channel_name,
@@ -337,6 +352,12 @@ async def main():
                             ]
                         )
 
+                    else:
+                        print(
+                            f"Keine neuen Videos "
+                            f"von {channel_name}"
+                        )
+
             except Exception as error:
 
                 print(
@@ -348,6 +369,8 @@ async def main():
         save_state(state)
 
         await client.close()
+
+        print("Bot fertig.")
 
 
 # =========================
