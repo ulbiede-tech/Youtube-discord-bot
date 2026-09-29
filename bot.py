@@ -159,6 +159,7 @@ def load_state():
         ) as file:
             data = json.load(file)
 
+        # Schutz gegen falsches Format
         if not isinstance(data, dict):
             return {}
 
@@ -201,25 +202,15 @@ async def update_server_stats(client):
                 STATS_CHANNEL_ID
             )
 
+        if not isinstance(
+            stats_channel,
+            discord.abc.GuildChannel
+        ):
+            raise RuntimeError(
+                "Die angegebene ID ist kein Server-Kanal."
+            )
+
         guild = stats_channel.guild
-
-        if guild is None:
-            raise RuntimeError(
-                "Der Stats-Kanal gehört zu keinem gefundenen Server."
-            )
-
-        # Mitgliederliste laden, damit member_count
-        # aktuell und zuverlässig ist.
-        await guild.chunk(cache=True)
-
-        member_count = guild.member_count
-
-        if member_count is None:
-            raise RuntimeError(
-                "Die Mitgliederzahl konnte nicht ermittelt werden."
-            )
-
-        new_name = f"Members {member_count}"
 
         print(
             f"Server gefunden: {guild.name}"
@@ -228,6 +219,16 @@ async def update_server_stats(client):
         print(
             f"Server-ID: {guild.id}"
         )
+
+        # Mitglieder direkt über die Discord-API abrufen
+        members = [
+            member
+            async for member in guild.fetch_members(
+                limit=None
+            )
+        ]
+
+        member_count = len(members)
 
         print(
             f"Aktuelle Mitgliederzahl: {member_count}"
@@ -238,11 +239,16 @@ async def update_server_stats(client):
             f"{stats_channel.name}"
         )
 
+        new_name = f"Members {member_count}"
+
         if stats_channel.name != new_name:
 
             await stats_channel.edit(
                 name=new_name,
-                reason="Ulmy Interactive: Mitgliederzahl aktualisieren"
+                reason=(
+                    "Ulmy Interactive: "
+                    "Mitgliederzahl aktualisieren"
+                )
             )
 
             print(
@@ -258,9 +264,9 @@ async def update_server_stats(client):
 
     except discord.Forbidden:
         print(
-            "FEHLER: Ulmy Interactive darf den Stats-Kanal "
-            "nicht bearbeiten. Prüfe die Berechtigung "
-            "'Kanäle verwalten'."
+            "FEHLER: Ulmy Interactive darf den "
+            "Stats-Kanal nicht bearbeiten. "
+            "Prüfe 'Kanäle verwalten' für diesen Kanal."
         )
 
     except Exception as error:
@@ -286,11 +292,14 @@ async def send_new_videos(
 
     for video in reversed(videos):
 
+        # YouTube-Vorschaubild
         thumbnail_url = (
             f"https://img.youtube.com/vi/"
             f"{video['id']}/hqdefault.jpg"
         )
 
+        # Der obere Text ist NICHT klickbar.
+        # Nur der eigentliche Videotitel ist klickbar.
         embed = discord.Embed(
             description=(
                 f"**{display_name} published a new video!**"
@@ -300,14 +309,17 @@ async def send_new_videos(
             color=0x33FF00
         )
 
+        # YouTube-Vorschaubild
         embed.set_image(
             url=thumbnail_url
         )
 
+        # @everyone erlauben
         allowed_mentions = discord.AllowedMentions(
             everyone=True
         )
 
+        # Kein zusätzlicher YouTube-Link als Text
         await channel.send(
             content="@everyone",
             embed=embed,
@@ -343,7 +355,7 @@ async def main():
         await client.login(DISCORD_TOKEN)
 
         # =========================
-        # Server Stats
+        # Server Stats aktualisieren
         # =========================
 
         await update_server_stats(client)
@@ -388,6 +400,8 @@ async def main():
                     )
                     continue
 
+                # Anzeigen, welches Video YouTube
+                # momentan als neuestes liefert
                 print(
                     f"Neuestes Feed-Video für "
                     f"{channel_name}: "
@@ -399,6 +413,10 @@ async def main():
                     channel_name,
                     []
                 )
+
+                # =========================
+                # Erster Start
+                # =========================
 
                 if channel_name not in state:
 
@@ -413,6 +431,10 @@ async def main():
                         video["id"]
                         for video in videos
                     ]
+
+                # =========================
+                # Normale Prüfung
+                # =========================
 
                 else:
 
@@ -458,6 +480,10 @@ async def main():
                     f"{channel_name}: "
                     f"{error}"
                 )
+
+        # =========================
+        # Zustand speichern
+        # =========================
 
         save_state(state)
 
