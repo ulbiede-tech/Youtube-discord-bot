@@ -16,6 +16,9 @@ import discord
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 DISCORD_CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 
+# Kanal für die Server-Mitgliederzahl
+STATS_CHANNEL_ID = 1481035272626901304
+
 
 # =========================
 # YouTube Kanäle
@@ -185,6 +188,61 @@ def save_state(state):
 
 
 # =========================
+# Server-Mitgliederzahl aktualisieren
+# =========================
+
+async def update_server_stats(client):
+    try:
+        stats_channel = client.get_channel(
+            STATS_CHANNEL_ID
+        )
+
+        # Falls der Kanal nicht im Cache ist
+        if stats_channel is None:
+            stats_channel = await client.fetch_channel(
+                STATS_CHANNEL_ID
+            )
+
+        guild = stats_channel.guild
+        member_count = guild.member_count
+
+        if member_count is None:
+            print(
+                "Mitgliederzahl konnte nicht ermittelt werden."
+            )
+            return
+
+        new_name = f"Members {member_count}"
+
+        print(
+            f"Server-Mitglieder: {member_count}"
+        )
+
+        # Nur umbenennen, wenn sich die Zahl geändert hat
+        if stats_channel.name != new_name:
+
+            await stats_channel.edit(
+                name=new_name,
+                reason="Server-Mitgliederzahl aktualisieren"
+            )
+
+            print(
+                f"Stats-Kanal aktualisiert: {new_name}"
+            )
+
+        else:
+            print(
+                "Stats-Kanal ist bereits aktuell."
+            )
+
+    except Exception as error:
+        print(
+            f"Fehler beim Aktualisieren "
+            f"des Stats-Kanals: {error}"
+        )
+
+
+# =========================
 # Video an Discord senden
 # =========================
 
@@ -207,7 +265,6 @@ async def send_new_videos(
         )
 
         # Nur der eigentliche Videotitel ist klickbar.
-        # Der Benachrichtigungstext oben bleibt nicht klickbar.
         embed = discord.Embed(
             description=(
                 f"**{display_name} published a new video!**"
@@ -260,6 +317,16 @@ async def main():
 
         await client.login(DISCORD_TOKEN)
 
+        # =========================
+        # Server Stats aktualisieren
+        # =========================
+
+        await update_server_stats(client)
+
+        # =========================
+        # YouTube Discord Kanal
+        # =========================
+
         channel = client.get_channel(
             DISCORD_CHANNEL_ID
         )
@@ -268,6 +335,10 @@ async def main():
             channel = await client.fetch_channel(
                 DISCORD_CHANNEL_ID
             )
+
+        # =========================
+        # YouTube prüfen
+        # =========================
 
         for channel_name, handle_url in YOUTUBE_HANDLES.items():
 
@@ -292,8 +363,7 @@ async def main():
                     )
                     continue
 
-                # Zur Fehlersuche anzeigen,
-                # welches Video der Feed gerade als neuestes liefert.
+                # Welches Video liefert YouTube aktuell?
                 print(
                     f"Neuestes Feed-Video für "
                     f"{channel_name}: "
